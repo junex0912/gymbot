@@ -115,7 +115,7 @@ gymbot/
 │   ├── measure.js        # Body measurements
 │   └── profile.js        # Profile management
 ├── ai/
-│   ├── gemini.js         # Groq AI wrapper & NLP
+│   ├── Groq.js         # Groq AI wrapper & NLP
 │   └── context.js        # User context builder
 ├── cron/
 │   └── reminders.js      # Scheduled notifications
