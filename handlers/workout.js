@@ -1,6 +1,6 @@
 const { Scenes, Markup } = require('telegraf');
 const db = require('../database/db');
-const { parseWorkout, getAdvice, normalizeExerciseName } = require('../ai/gemini');
+const { parseWorkout, normalizeExerciseName } = require('../ai/gemini');
 
 function isBack(text) {
   if (!text) return false;
@@ -55,16 +55,6 @@ const workoutScene = new Scenes.WizardScene(
     }
 
     ctx.wizard.state.effortScore = score;
-
-    try {
-      const userId = ctx.wizard.state.userId;
-      const advice = await getAdvice(userId, [], score);
-      if (advice && advice.trim()) {
-        await ctx.reply(`Совет тренера:\n${advice.trim()}`);
-      }
-    } catch (error) {
-      console.error('Ошибка получения совета от AI-тренера:', error);
-    }
 
     ctx.reply(
       'Принято! Записывай упражнения в свободной форме. Например: жим 100кг 5х3. Когда закончишь — напиши /done',
