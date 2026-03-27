@@ -194,7 +194,7 @@ const onboardingScene = new Scenes.WizardScene(
     );
     return ctx.wizard.next();
   },
-  (ctx) => {
+  async (ctx) => {
     const raw = ctx.message && ctx.message.text ? ctx.message.text.trim() : '';
 
     if (isCancel(raw)) {
@@ -224,22 +224,12 @@ const onboardingScene = new Scenes.WizardScene(
     const { name, age, height_cm, weight_kg, level, goal, avg_sleep_hours } = ctx.wizard.state.user;
     const telegramId = String(ctx.from.id);
 
-    const insertUser = db.prepare(`
-      INSERT INTO users (telegram_id, name, age, height_cm, weight_kg, level, goal, avg_sleep_hours)
-      VALUES (@telegram_id, @name, @age, @height_cm, @weight_kg, @level, @goal, @avg_sleep_hours)
-    `);
-
     try {
-      insertUser.run({
-        telegram_id: telegramId,
-        name,
-        age,
-        height_cm,
-        weight_kg,
-        level,
-        goal,
-        avg_sleep_hours,
-      });
+      await db.run(
+        `INSERT INTO users (telegram_id, name, age, height_cm, weight_kg, level, goal, avg_sleep_hours)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [telegramId, name, age, height_cm, weight_kg, level, goal, avg_sleep_hours]
+      );
       ctx.reply(
         `Отлично, ${name}! Профиль создан. Напиши /train когда будешь в зале \uD83D\uDCAA`,
         Markup.removeKeyboard()
@@ -254,13 +244,11 @@ const onboardingScene = new Scenes.WizardScene(
 );
 
 function registerOnboarding(bot) {
-  const getUserByTelegramId = db.prepare(
-    'SELECT * FROM users WHERE telegram_id = ?'
-  );
-
-  bot.start((ctx) => {
+  bot.start(async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
 
     if (user) {
       const name = user.name || 'друг';

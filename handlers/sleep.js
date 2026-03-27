@@ -1,33 +1,13 @@
 const { Scenes } = require('telegraf');
 const db = require('../database/db');
 
-const getUserByTelegramId = db.prepare(
-  'SELECT * FROM users WHERE telegram_id = ?'
-);
-
-const getSleepByDate = db.prepare(`
-  SELECT *
-  FROM sleep_log
-  WHERE user_id = ? AND date = ?
-  LIMIT 1
-`);
-
-const insertSleep = db.prepare(`
-  INSERT INTO sleep_log (user_id, date, hours_slept)
-  VALUES (@user_id, @date, @hours_slept)
-`);
-
-const updateSleep = db.prepare(`
-  UPDATE sleep_log
-  SET hours_slept = @hours_slept
-  WHERE id = @id
-`);
-
 const sleepScene = new Scenes.WizardScene(
   'sleep',
-  (ctx) => {
+  async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
 
     if (!user) {
       ctx.reply('Сначала пройди онбординг через /start, чтобы создать профиль.');
@@ -40,7 +20,7 @@ const sleepScene = new Scenes.WizardScene(
     ctx.reply('Сколько часов ты спал(а) сегодня? Укажи число, например: 7.5');
     return ctx.wizard.next();
   },
-  (ctx) => {
+  async (ctx) => {
     const text =
       ctx.message && ctx.message.text ? ctx.message.text.replace(',', '.').trim() : '';
     const hours = parseFloat(text);
@@ -53,19 +33,24 @@ const sleepScene = new Scenes.WizardScene(
     const userId = ctx.wizard.state.userId;
     const date = ctx.wizard.state.date;
 
-    const existing = getSleepByDate.get(userId, date);
+    const existing = await db.get(
+      `SELECT *
+       FROM sleep_log
+       WHERE user_id = ? AND date = ?
+       LIMIT 1`,
+      [userId, date]
+    );
 
     if (existing) {
-      updateSleep.run({
-        id: existing.id,
-        hours_slept: hours,
-      });
+      await db.run(`UPDATE sleep_log SET hours_slept = ? WHERE id = ?`, [
+        hours,
+        existing.id,
+      ]);
     } else {
-      insertSleep.run({
-        user_id: userId,
-        date,
-        hours_slept: hours,
-      });
+      await db.run(
+        `INSERT INTO sleep_log (user_id, date, hours_slept) VALUES (?, ?, ?)`,
+        [userId, date, hours]
+      );
     }
 
     ctx.reply(`Записал сон за сегодня: ${hours} ч.`);
@@ -81,4 +66,3 @@ module.exports = {
   sleepScene,
   registerSleep,
 };
-

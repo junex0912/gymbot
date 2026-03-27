@@ -11,36 +11,6 @@ if (!groqApiKey) {
   groqClient = new Groq({ apiKey: groqApiKey });
 }
 
-const getUserByTelegramId = db.prepare(
-  'SELECT * FROM users WHERE telegram_id = ?'
-);
-
-const insertMeasurement = db.prepare(`
-  INSERT INTO measurements (user_id, date, body_weight, chest, waist, hips, bicep, thigh)
-  VALUES (@user_id, @date, @body_weight, @chest, @waist, @hips, @bicep, @thigh)
-`);
-
-const getLastMeasurement = db.prepare(`
-  SELECT *
-  FROM measurements
-  WHERE user_id = ?
-  ORDER BY date DESC, id DESC
-  LIMIT 1
-`);
-
-const getAllMeasurements = db.prepare(`
-  SELECT *
-  FROM measurements
-  WHERE user_id = ?
-  ORDER BY date ASC
-`);
-
-const getUserProfileById = db.prepare(`
-  SELECT *
-  FROM users
-  WHERE id = ?
-`);
-
 function isBack(text) {
   if (!text) return false;
   const t = text.toLowerCase();
@@ -74,8 +44,15 @@ async function analyzeMeasurements(userId) {
     return null;
   }
 
-  const measurements = getAllMeasurements.all(userId) || [];
-  const profile = getUserProfileById.get(userId);
+  const measurements =
+    (await db.all(
+      `SELECT *
+       FROM measurements
+       WHERE user_id = ?
+       ORDER BY date ASC`,
+      [userId]
+    )) || [];
+  const profile = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
 
   if (!measurements.length || !profile) {
     return null;
@@ -113,9 +90,11 @@ async function analyzeMeasurements(userId) {
 
 const measureScene = new Scenes.WizardScene(
   'measure',
-  (ctx) => {
+  async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
 
     if (!user) {
       ctx.reply('Сначала пройди онбординг через /start, чтобы создать профиль.');
@@ -303,18 +282,30 @@ const measureScene = new Scenes.WizardScene(
     const date = ctx.wizard.state.date;
     const m = ctx.wizard.state.measurement;
 
-    const prev = getLastMeasurement.get(userId) || null;
+    const prev =
+      (await db.get(
+        `SELECT *
+         FROM measurements
+         WHERE user_id = ?
+         ORDER BY date DESC, id DESC
+         LIMIT 1`,
+        [userId]
+      )) || null;
 
-    insertMeasurement.run({
-      user_id: userId,
-      date,
-      body_weight: m.body_weight,
-      chest: m.chest,
-      waist: m.waist,
-      hips: m.hips,
-      bicep: m.bicep,
-      thigh: m.thigh,
-    });
+    await db.run(
+      `INSERT INTO measurements (user_id, date, body_weight, chest, waist, hips, bicep, thigh)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        date,
+        m.body_weight,
+        m.chest,
+        m.waist,
+        m.hips,
+        m.bicep,
+        m.thigh,
+      ]
+    );
 
     const lines = [];
     lines.push(`Замеры на ${date}:`);

@@ -1,10 +1,6 @@
 const { Scenes, Markup } = require('telegraf');
 const db = require('../database/db');
 
-const getUserByTelegramId = db.prepare(
-  'SELECT * FROM users WHERE telegram_id = ?'
-);
-
 const levelOptions = ['Новичок', 'Средний', 'Продвинутый'];
 const goalOptions = ['Набор массы', 'Похудение', 'Развитие силы'];
 
@@ -16,10 +12,6 @@ const UPDATE_FIELDS = [
   { key: 'height_cm', label: 'Рост', column: 'height_cm' },
   { key: 'avg_sleep_hours', label: 'Средний сон', column: 'avg_sleep_hours' },
 ];
-
-const updateSleepReminders = db.prepare(
-  'UPDATE users SET sleep_reminders = ? WHERE id = ?'
-);
 
 function isCancel(text) {
   if (!text) return false;
@@ -50,7 +42,9 @@ function formatProfile(user) {
 
 async function handleRemindersCommand(ctx) {
   const telegramId = String(ctx.from.id);
-  const user = getUserByTelegramId.get(telegramId);
+  const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+    telegramId,
+  ]);
 
   if (!user) {
     await ctx.reply(
@@ -73,9 +67,11 @@ async function handleRemindersCommand(ctx) {
 
 const updateScene = new Scenes.WizardScene(
   'update_profile',
-  (ctx) => {
+  async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
 
     if (!user) {
       ctx.reply('Сначала пройди онбординг через /start, чтобы создать профиль.');
@@ -152,7 +148,7 @@ const updateScene = new Scenes.WizardScene(
 
     return ctx.wizard.next();
   },
-  (ctx) => {
+  async (ctx) => {
     const text = ctx.message && ctx.message.text ? ctx.message.text.trim() : '';
     const raw = (text || '').replace(',', '.').trim();
 
@@ -207,10 +203,10 @@ const updateScene = new Scenes.WizardScene(
       value = text;
     }
 
-    const stmt = db.prepare(
-      `UPDATE users SET ${field.column} = ? WHERE id = ?`
-    );
-    stmt.run(value, userId);
+    await db.run(`UPDATE users SET ${field.column} = ? WHERE id = ?`, [
+      value,
+      userId,
+    ]);
 
     if (field.key === 'name') {
       ctx.reply('Имя обновлено ✅', Markup.removeKeyboard());
@@ -222,9 +218,11 @@ const updateScene = new Scenes.WizardScene(
 );
 
 function registerProfile(bot) {
-  bot.command('profile', (ctx) => {
+  bot.command('profile', async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
 
     if (!user) {
       return ctx.reply(
@@ -239,23 +237,33 @@ function registerProfile(bot) {
 
   bot.command('reminders', (ctx) => handleRemindersCommand(ctx));
 
-  bot.hears('🔔 Включить напоминания о сне', (ctx) => {
+  bot.hears('🔔 Включить напоминания о сне', async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
     if (!user) {
       return ctx.reply('Сначала пройди онбординг через /start.');
     }
-    updateSleepReminders.run(1, user.id);
+    await db.run('UPDATE users SET sleep_reminders = ? WHERE id = ?', [
+      1,
+      user.id,
+    ]);
     return ctx.reply('Напоминания о сне включены 🔔', Markup.removeKeyboard());
   });
 
-  bot.hears('🔕 Выключить напоминания о сне', (ctx) => {
+  bot.hears('🔕 Выключить напоминания о сне', async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
     if (!user) {
       return ctx.reply('Сначала пройди онбординг через /start.');
     }
-    updateSleepReminders.run(0, user.id);
+    await db.run('UPDATE users SET sleep_reminders = ? WHERE id = ?', [
+      0,
+      user.id,
+    ]);
     return ctx.reply('Напоминания о сне выключены 🔕', Markup.removeKeyboard());
   });
 }

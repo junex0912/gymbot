@@ -56,7 +56,7 @@ bot.use(session());
 bot.use(stage.middleware());
 
 // Handlers
-registerOnboarding(bot, db);
+registerOnboarding(bot);
 registerWorkout(bot);
 registerSleep(bot);
 registerMeasure(bot);
@@ -67,10 +67,11 @@ registerReminders(bot);
 // Чат с тренером (режим /ask)
 const activeChatUsers = new Map(); // telegram_id -> { userId, history: [{role, content}] }
 
-bot.command('ask', (ctx) => {
+bot.command('ask', async (ctx) => {
   const telegramId = String(ctx.from.id);
-  const userStmt = db.prepare('SELECT * FROM users WHERE telegram_id = ?');
-  const user = userStmt.get(telegramId);
+  const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+    telegramId,
+  ]);
 
   if (!user) {
     return ctx.reply('Сначала пройди онбординг через /start.');
@@ -150,14 +151,16 @@ bot.command('help', (ctx) =>
   )
 );
 
-bot.launch()
-  .then(() => {
+(async () => {
+  try {
+    await db.init();
+    await bot.launch();
     console.log('GymBot запущен');
-  })
-  .catch((err) => {
+  } catch (err) {
     console.error('Ошибка запуска бота:', err);
     process.exit(1);
-  });
+  }
+})();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

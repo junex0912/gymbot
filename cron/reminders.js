@@ -5,13 +5,6 @@ const sleepFacts = require('../data/sleep_facts');
 const MORNING_CHECK_TIME = process.env.MORNING_CHECK_TIME || '09:00';
 const SLEEP_REMINDER_TIME = process.env.SLEEP_REMINDER_TIME || '22:30';
 
-const getAllUsers = db.prepare('SELECT id, telegram_id, sleep_reminders FROM users');
-
-const insertSleep = db.prepare(`
-  INSERT INTO sleep_log (user_id, date, hours_slept)
-  VALUES (@user_id, @date, @hours_slept)
-`);
-
 // telegram_id -> date (YYYY-MM-DD) ожидания ответа по сну
 const pendingMorning = new Map();
 
@@ -82,7 +75,9 @@ function registerReminders(bot) {
   // Утреннее напоминание
   const morningCron = buildCronFromTimeStr(MORNING_CHECK_TIME);
   cron.schedule(morningCron, async () => {
-    const users = getAllUsers.all();
+    const users = await db.all(
+      'SELECT id, telegram_id, sleep_reminders FROM users'
+    );
     const date = todayISO();
 
     for (const u of users) {
@@ -117,20 +112,19 @@ function registerReminders(bot) {
 
     pendingMorning.delete(telegramId);
 
-    // Найдём пользователя в БД
-    const userStmt = db.prepare('SELECT * FROM users WHERE telegram_id = ?');
-    const user = userStmt.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
     if (!user) {
       await ctx.reply('Сначала пройди онбординг через /start.');
       return;
     }
 
     try {
-      insertSleep.run({
-        user_id: user.id,
-        date: pendingDate,
-        hours_slept: hours,
-      });
+      await db.run(
+        `INSERT INTO sleep_log (user_id, date, hours_slept) VALUES (?, ?, ?)`,
+        [user.id, pendingDate, hours]
+      );
     } catch (err) {
       console.error('Ошибка сохранения сна в БД:', err);
     }
@@ -151,7 +145,9 @@ function registerReminders(bot) {
   // Вечернее напоминание
   const eveningCron = buildCronFromTimeStr(SLEEP_REMINDER_TIME);
   cron.schedule(eveningCron, async () => {
-    const users = getAllUsers.all();
+    const users = await db.all(
+      'SELECT id, telegram_id, sleep_reminders FROM users'
+    );
 
     for (const u of users) {
       if (u.sleep_reminders === 0) continue;

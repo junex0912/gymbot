@@ -10,30 +10,26 @@ if (!groqApiKey) {
   groqClient = new Groq({ apiKey: groqApiKey });
 }
 
-const getUserByTelegramId = db.prepare(
-  'SELECT * FROM users WHERE telegram_id = ?'
-);
-
-const getWorkoutsInRange = db.prepare(`
+const SQL_WORKOUTS_IN_RANGE = `
   SELECT *
   FROM workouts
-  WHERE user_id = @user_id AND date >= @from AND date <= @to
-`);
+  WHERE user_id = ? AND date >= ? AND date <= ?
+`;
 
-const getSleepInRange = db.prepare(`
+const SQL_SLEEP_IN_RANGE = `
   SELECT *
   FROM sleep_log
-  WHERE user_id = @user_id AND date >= @from AND date <= @to
-`);
+  WHERE user_id = ? AND date >= ? AND date <= ?
+`;
 
-const getBodyWeightInRange = db.prepare(`
+const SQL_BODY_WEIGHT_IN_RANGE = `
   SELECT *
   FROM measurements
-  WHERE user_id = @user_id AND date >= @from AND date <= @to
+  WHERE user_id = ? AND date >= ? AND date <= ?
   ORDER BY date ASC
-`);
+`;
 
-const getMonthlyAggregates = db.prepare(`
+const SQL_MONTHLY_AGGREGATES = `
   SELECT
     strftime('%Y-%m', date) AS month,
     exercise,
@@ -42,60 +38,42 @@ const getMonthlyAggregates = db.prepare(`
       COALESCE(weight_kg, 0) * COALESCE(sets, 0) * COALESCE(reps, 0)
     ) AS total_volume
   FROM workouts
-  WHERE user_id = @user_id
-    AND date >= @from
-    AND date <= @to
+  WHERE user_id = ?
+    AND date >= ?
+    AND date <= ?
   GROUP BY month, exercise
   ORDER BY month ASC
-`);
+`;
 
-const getMonthlySleepAggregates = db.prepare(`
+const SQL_MONTHLY_SLEEP_AGGREGATES = `
   SELECT
     strftime('%Y-%m', date) AS month,
     AVG(hours_slept) AS avg_sleep
   FROM sleep_log
-  WHERE user_id = @user_id
-    AND date >= @from
-    AND date <= @to
+  WHERE user_id = ?
+    AND date >= ?
+    AND date <= ?
   GROUP BY month
   ORDER BY month ASC
-`);
+`;
 
-const getExerciseHistoryByMonth = db.prepare(`
+const SQL_EXERCISE_HISTORY_BY_MONTH = `
   SELECT
     strftime('%Y-%m', date) AS month,
     MAX(weight_kg) AS max_weight
   FROM workouts
-  WHERE user_id = @user_id
-    AND exercise = @exercise
+  WHERE user_id = ?
+    AND exercise = ?
   GROUP BY month
   ORDER BY month ASC
-`);
+`;
 
-const getRecordsByUser = db.prepare(`
+const SQL_RECORDS_BY_USER = `
   SELECT *
   FROM records
-  WHERE user_id = @user_id
+  WHERE user_id = ?
   ORDER BY achieved_date DESC, id DESC
-`);
-
-const getAllUsers = db.prepare(`
-  SELECT id, name
-  FROM users
-`);
-
-const getUserWeekVolumes = db.prepare(`
-  SELECT
-    date,
-    SUM(
-      COALESCE(weight_kg, 0) * COALESCE(sets, 0) * COALESCE(reps, 0)
-    ) AS volume
-  FROM workouts
-  WHERE user_id = @user_id
-    AND date >= @from
-    AND date <= @to
-  GROUP BY date
-`);
+`;
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -150,9 +128,11 @@ async function callGroqSummary(prompt) {
   return String(content).trim();
 }
 
-function ensureUser(ctx) {
+async function ensureUser(ctx) {
   const telegramId = String(ctx.from.id);
-  const user = getUserByTelegramId.get(telegramId);
+  const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+    telegramId,
+  ]);
   if (!user) {
     ctx.reply('Сначала пройди онбординг через /start, чтобы создать профиль.');
     return null;
@@ -249,7 +229,7 @@ function formatMonthReport({ maxByExercise, changeByExercise, avgSleep, bodyWeig
 function registerStats(bot) {
   // /week
   bot.command('week', async (ctx) => {
-    const user = ensureUser(ctx);
+    const user = await ensureUser(ctx);
     if (!user) return;
 
     const to = todayISO();
@@ -257,21 +237,13 @@ function registerStats(bot) {
     const prevFrom = shiftDateDays(-13);
     const prevTo = shiftDateDays(-7);
 
-    const workouts = getWorkoutsInRange.all({
-      user_id: user.id,
-      from,
-      to,
-    });
-    const prevWorkouts = getWorkoutsInRange.all({
-      user_id: user.id,
-      from: prevFrom,
-      to: prevTo,
-    });
-    const sleepRows = getSleepInRange.all({
-      user_id: user.id,
-      from,
-      to,
-    });
+    const workouts = await db.all(SQL_WORKOUTS_IN_RANGE, [user.id, from, to]);
+    const prevWorkouts = await db.all(SQL_WORKOUTS_IN_RANGE, [
+      user.id,
+      prevFrom,
+      prevTo,
+    ]);
+    const sleepRows = await db.all(SQL_SLEEP_IN_RANGE, [user.id, from, to]);
 
     const maxByExerciseMap = new Map();
     workouts.forEach((w) => {
@@ -319,7 +291,7 @@ function registerStats(bot) {
 
   // /month
   bot.command('month', async (ctx) => {
-    const user = ensureUser(ctx);
+    const user = await ensureUser(ctx);
     if (!user) return;
 
     const to = todayISO();
@@ -327,26 +299,18 @@ function registerStats(bot) {
     const prevFrom = shiftDateDays(-59);
     const prevTo = shiftDateDays(-30);
 
-    const workouts = getWorkoutsInRange.all({
-      user_id: user.id,
+    const workouts = await db.all(SQL_WORKOUTS_IN_RANGE, [user.id, from, to]);
+    const prevWorkouts = await db.all(SQL_WORKOUTS_IN_RANGE, [
+      user.id,
+      prevFrom,
+      prevTo,
+    ]);
+    const sleepRows = await db.all(SQL_SLEEP_IN_RANGE, [user.id, from, to]);
+    const bodyWeights = await db.all(SQL_BODY_WEIGHT_IN_RANGE, [
+      user.id,
       from,
       to,
-    });
-    const prevWorkouts = getWorkoutsInRange.all({
-      user_id: user.id,
-      from: prevFrom,
-      to: prevTo,
-    });
-    const sleepRows = getSleepInRange.all({
-      user_id: user.id,
-      from,
-      to,
-    });
-    const bodyWeights = getBodyWeightInRange.all({
-      user_id: user.id,
-      from,
-      to,
-    });
+    ]);
 
     const maxByExerciseMap = new Map();
     const prevMaxByExerciseMap = new Map();
@@ -410,7 +374,7 @@ function registerStats(bot) {
 
   // /stats N
   bot.command('stats', async (ctx) => {
-    const user = ensureUser(ctx);
+    const user = await ensureUser(ctx);
     if (!user) return;
 
     const parts = ctx.message.text.split(' ').slice(1);
@@ -424,16 +388,16 @@ function registerStats(bot) {
     const to = todayISO();
     const from = shiftDateMonths(-n);
 
-    const workoutAgg = getMonthlyAggregates.all({
-      user_id: user.id,
+    const workoutAgg = await db.all(SQL_MONTHLY_AGGREGATES, [
+      user.id,
       from,
       to,
-    });
-    const sleepAgg = getMonthlySleepAggregates.all({
-      user_id: user.id,
+    ]);
+    const sleepAgg = await db.all(SQL_MONTHLY_SLEEP_AGGREGATES, [
+      user.id,
       from,
       to,
-    });
+    ]);
 
     const byMonth = {};
     workoutAgg.forEach((row) => {
@@ -504,7 +468,7 @@ function registerStats(bot) {
 
   // /history exercise
   bot.command('history', async (ctx) => {
-    const user = ensureUser(ctx);
+    const user = await ensureUser(ctx);
     if (!user) return;
 
     const query = ctx.message.text.split(' ').slice(1).join(' ').trim();
@@ -513,10 +477,10 @@ function registerStats(bot) {
       return;
     }
 
-    const rows = getExerciseHistoryByMonth.all({
-      user_id: user.id,
-      exercise: query,
-    });
+    const rows = await db.all(SQL_EXERCISE_HISTORY_BY_MONTH, [
+      user.id,
+      query,
+    ]);
 
     if (!rows.length) {
       await ctx.reply('История по этому упражнению не найдена.');
@@ -566,7 +530,7 @@ function registerStats(bot) {
 
   // /compare
   bot.command('compare', async (ctx) => {
-    const users = getAllUsers.all();
+    const users = await db.all('SELECT id, name FROM users');
     if (!users.length) {
       await ctx.reply('Пользователей пока нет.');
       return;
@@ -579,17 +543,13 @@ function registerStats(bot) {
 
     const results = [];
 
-    users.forEach((u) => {
-      const ws = getWorkoutsInRange.all({
-        user_id: u.id,
-        from,
-        to,
-      });
-      const prev = getWorkoutsInRange.all({
-        user_id: u.id,
-        from: prevFrom,
-        to: prevTo,
-      });
+    for (const u of users) {
+      const ws = await db.all(SQL_WORKOUTS_IN_RANGE, [u.id, from, to]);
+      const prev = await db.all(SQL_WORKOUTS_IN_RANGE, [
+        u.id,
+        prevFrom,
+        prevTo,
+      ]);
       const vNow = calcVolumeSummary(ws);
       const vPrev = calcVolumeSummary(prev);
       const change = percentChange(vNow, vPrev);
@@ -597,7 +557,7 @@ function registerStats(bot) {
         name: u.name || 'Без имени',
         progress: change,
       });
-    });
+    }
 
     results.sort((a, b) => b.progress - a.progress);
 
@@ -630,12 +590,10 @@ function registerStats(bot) {
 
   // /records
   bot.command('records', async (ctx) => {
-    const user = ensureUser(ctx);
+    const user = await ensureUser(ctx);
     if (!user) return;
 
-    const rows = getRecordsByUser.all({
-      user_id: user.id,
-    });
+    const rows = await db.all(SQL_RECORDS_BY_USER, [user.id]);
 
     if (!rows.length) {
       await ctx.reply('Пока нет ни одного личного рекорда.');

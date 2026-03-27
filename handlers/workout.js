@@ -2,40 +2,6 @@ const { Scenes, Markup } = require('telegraf');
 const db = require('../database/db');
 const { parseWorkout, getAdvice, normalizeExerciseName } = require('../ai/gemini');
 
-const getUserByTelegramId = db.prepare(
-  'SELECT * FROM users WHERE telegram_id = ?'
-);
-
-const insertWorkout = db.prepare(`
-  INSERT INTO workouts (user_id, date, exercise, weight_kg, sets, reps, notes, effort_score)
-  VALUES (@user_id, @date, @exercise, @weight_kg, @sets, @reps, @notes, @effort_score)
-`);
-
-const getLastWorkoutForExercise = db.prepare(`
-  SELECT * FROM workouts
-  WHERE user_id = @user_id AND exercise = @exercise
-  ORDER BY id DESC
-  LIMIT 1
-`);
-
-const getRecord = db.prepare(`
-  SELECT * FROM records
-  WHERE user_id = @user_id AND exercise = @exercise
-  ORDER BY max_weight_kg DESC
-  LIMIT 1
-`);
-
-const insertRecord = db.prepare(`
-  INSERT INTO records (user_id, exercise, max_weight_kg, achieved_date)
-  VALUES (@user_id, @exercise, @max_weight_kg, @achieved_date)
-`);
-
-const updateRecord = db.prepare(`
-  UPDATE records
-  SET max_weight_kg = @max_weight_kg, achieved_date = @achieved_date
-  WHERE id = @id
-`);
-
 function isBack(text) {
   if (!text) return false;
   const t = text.toLowerCase();
@@ -50,9 +16,11 @@ function isCancel(text) {
 
 const workoutScene = new Scenes.WizardScene(
   'workout',
-  (ctx) => {
+  async (ctx) => {
     const telegramId = String(ctx.from.id);
-    const user = getUserByTelegramId.get(telegramId);
+    const user = await db.get('SELECT * FROM users WHERE telegram_id = ?', [
+      telegramId,
+    ]);
 
     if (!user) {
       ctx.reply('Сначала пройди онбординг через /start, чтобы создать профиль.');
@@ -198,21 +166,19 @@ const workoutScene = new Scenes.WizardScene(
       console.error('Ошибка нормализации названия упражнения через Groq:', error);
     }
 
-    const previous = getLastWorkoutForExercise.get({
-      user_id: userId,
-      exercise,
-    });
+    const previous = await db.get(
+      `SELECT * FROM workouts
+       WHERE user_id = ? AND exercise = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [userId, exercise]
+    );
 
-    insertWorkout.run({
-      user_id: userId,
-      date,
-      exercise,
-      weight_kg,
-      sets,
-      reps,
-      notes,
-      effort_score: effortScore,
-    });
+    await db.run(
+      `INSERT INTO workouts (user_id, date, exercise, weight_kg, sets, reps, notes, effort_score)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, date, exercise, weight_kg, sets, reps, notes, effortScore]
+    );
 
     if (!Array.isArray(ctx.wizard.state.sessionWorkouts)) {
       ctx.wizard.state.sessionWorkouts = [];
@@ -255,22 +221,28 @@ const workoutScene = new Scenes.WizardScene(
     }
 
     if (weight_kg !== null) {
-      const record = getRecord.get({ user_id: userId, exercise });
+      const record = await db.get(
+        `SELECT * FROM records
+         WHERE user_id = ? AND exercise = ?
+         ORDER BY max_weight_kg DESC
+         LIMIT 1`,
+        [userId, exercise]
+      );
 
       if (!record) {
-        insertRecord.run({
-          user_id: userId,
-          exercise,
-          max_weight_kg: weight_kg,
-          achieved_date: date,
-        });
+        await db.run(
+          `INSERT INTO records (user_id, exercise, max_weight_kg, achieved_date)
+           VALUES (?, ?, ?, ?)`,
+          [userId, exercise, weight_kg, date]
+        );
         await ctx.reply('\uD83C\uDFC6 Новый рекорд!');
       } else if (weight_kg > record.max_weight_kg) {
-        updateRecord.run({
-          id: record.id,
-          max_weight_kg: weight_kg,
-          achieved_date: date,
-        });
+        await db.run(
+          `UPDATE records
+           SET max_weight_kg = ?, achieved_date = ?
+           WHERE id = ?`,
+          [weight_kg, date, record.id]
+        );
         await ctx.reply('\uD83C\uDFC6 Новый рекорд!');
       }
     }
