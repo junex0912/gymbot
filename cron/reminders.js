@@ -82,6 +82,13 @@ function registerReminders(bot) {
 
     for (const u of users) {
       if (u.sleep_reminders === 0) continue;
+
+      const alreadyLogged = await db.get(
+        `SELECT id FROM sleep_log WHERE user_id = ? AND date = ? LIMIT 1`,
+        [u.id, date]
+      );
+      if (alreadyLogged) continue;
+
       try {
         await bot.telegram.sendMessage(
           u.telegram_id,

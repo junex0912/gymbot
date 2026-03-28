@@ -230,9 +230,31 @@ const onboardingScene = new Scenes.WizardScene(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [telegramId, name, age, height_cm, weight_kg, level, goal, avg_sleep_hours]
       );
-      ctx.reply(
+      await ctx.reply(
         `Отлично, ${name}! Профиль создан. Напиши /train когда будешь в зале \uD83D\uDCAA`,
         Markup.removeKeyboard()
+      );
+      await ctx.reply(
+        `Вот что я умею 💪
+
+📝 /train — записать тренировку. Просто пиши в свободной форме: «жим 100кг 5х3»
+/done — завершить тренировку
+
+📊 /week — отчёт за неделю
+/month — отчёт за месяц
+/compare — сравнение с друзьями
+
+📏 /measure — записать замеры тела
+😴 /sleep — записать часы сна
+🏆 /records — личные рекорды
+
+👤 /profile — твой профиль
+/update — обновить данные
+/reminders — включить/выключить напоминания
+
+🤖 /ask — задать вопрос AI-тренеру
+
+Просто начни тренировку — напиши /train 🚀`
       );
     } catch (error) {
       console.error('Ошибка сохранения пользователя:', error);
