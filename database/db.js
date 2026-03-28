@@ -64,6 +64,15 @@ const SCHEMA_STATEMENTS = [
     achieved_date TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS exercise_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    input_text TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_exercise_aliases_user_input
+   ON exercise_aliases (user_id, input_text)`,
 ];
 
 function normalizeValue(v) {
