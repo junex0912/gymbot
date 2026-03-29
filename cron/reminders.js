@@ -11,8 +11,9 @@ const pendingMorning = new Map();
 // user_id -> { weekKey: string, used: Set<number> }
 const weeklyFacts = new Map();
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+/** Календарная дата YYYY-MM-DD в Europe/Moscow (согласовано с cron по Москве). */
+function todayMoscowISO() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
 }
 
 function getWeekKey(date = new Date()) {
@@ -74,32 +75,36 @@ function pickWeeklyFact(userId) {
 function registerReminders(bot) {
   // Утреннее напоминание
   const morningCron = buildCronFromTimeStr(MORNING_CHECK_TIME);
-  cron.schedule(morningCron, async () => {
-    const users = await db.all(
-      'SELECT id, telegram_id, sleep_reminders FROM users'
-    );
-    const date = todayISO();
-
-    for (const u of users) {
-      if (u.sleep_reminders === 0) continue;
-
-      const alreadyLogged = await db.get(
-        `SELECT id FROM sleep_log WHERE user_id = ? AND date = ? LIMIT 1`,
-        [u.id, date]
+  cron.schedule(
+    morningCron,
+    async () => {
+      const users = await db.all(
+        'SELECT id, telegram_id, sleep_reminders FROM users'
       );
-      if (alreadyLogged) continue;
+      const date = todayMoscowISO();
 
-      try {
-        await bot.telegram.sendMessage(
-          u.telegram_id,
-          'Доброе утро! ☀️ Сколько часов спал этой ночью? (ответь цифрой)'
+      for (const u of users) {
+        if (u.sleep_reminders === 0) continue;
+
+        const alreadyLogged = await db.get(
+          `SELECT id FROM sleep_log WHERE user_id = ? AND date = ? LIMIT 1`,
+          [u.id, date]
         );
-        pendingMorning.set(String(u.telegram_id), date);
-      } catch (err) {
-        console.error('Ошибка отправки утреннего напоминания:', err);
+        if (alreadyLogged) continue;
+
+        try {
+          await bot.telegram.sendMessage(
+            u.telegram_id,
+            'Доброе утро! ☀️ Сколько часов спал этой ночью? (ответь цифрой)'
+          );
+          pendingMorning.set(String(u.telegram_id), date);
+        } catch (err) {
+          console.error('Ошибка отправки утреннего напоминания:', err);
+        }
       }
-    }
-  });
+    },
+    { timezone: 'Europe/Moscow' }
+  );
 
   // Обработка ответов на утреннее сообщение
   bot.on('text', async (ctx, next) => {
@@ -151,24 +156,28 @@ function registerReminders(bot) {
 
   // Вечернее напоминание
   const eveningCron = buildCronFromTimeStr(SLEEP_REMINDER_TIME);
-  cron.schedule(eveningCron, async () => {
-    const users = await db.all(
-      'SELECT id, telegram_id, sleep_reminders FROM users'
-    );
+  cron.schedule(
+    eveningCron,
+    async () => {
+      const users = await db.all(
+        'SELECT id, telegram_id, sleep_reminders FROM users'
+      );
 
-    for (const u of users) {
-      if (u.sleep_reminders === 0) continue;
-      const fact = pickWeeklyFact(u.id) || '';
-      const message =
-        `🌙 Время спать!\n\n${fact}\n\nЗавтра будет продуктивная тренировка 💪`;
+      for (const u of users) {
+        if (u.sleep_reminders === 0) continue;
+        const fact = pickWeeklyFact(u.id) || '';
+        const message =
+          `🌙 Время спать!\n\n${fact}\n\nЗавтра будет продуктивная тренировка 💪`;
 
-      try {
-        await bot.telegram.sendMessage(u.telegram_id, message);
-      } catch (err) {
-        console.error('Ошибка отправки вечернего напоминания:', err);
+        try {
+          await bot.telegram.sendMessage(u.telegram_id, message);
+        } catch (err) {
+          console.error('Ошибка отправки вечернего напоминания:', err);
+        }
       }
-    }
-  });
+    },
+    { timezone: 'Europe/Moscow' }
+  );
 }
 
 module.exports = {
