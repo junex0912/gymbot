@@ -72,6 +72,25 @@ function pickWeeklyFact(userId) {
   return sleepFacts[idx];
 }
 
+const REMINDERS_FOOTER =
+  '\n\n💡 Чтобы отключить напоминания — напиши /reminders';
+
+async function handleReminderSendError(err, telegramId, label) {
+  const forbidden =
+    err.code === 403 || err.response?.error_code === 403;
+  if (forbidden) {
+    await db.run(
+      `UPDATE users SET sleep_reminders = 0 WHERE telegram_id = ?`,
+      [String(telegramId)]
+    );
+    console.log(
+      `sleep_reminders отключён (403 Forbidden), telegram_id=${telegramId}`
+    );
+    return;
+  }
+  console.error(`Ошибка отправки ${label}:`, err);
+}
+
 function registerReminders(bot) {
   // Утреннее напоминание
   const morningCron = buildCronFromTimeStr(MORNING_CHECK_TIME);
@@ -95,11 +114,15 @@ function registerReminders(bot) {
         try {
           await bot.telegram.sendMessage(
             u.telegram_id,
-            'Доброе утро! ☀️ Сколько часов спал этой ночью? (ответь цифрой)'
+            `Доброе утро! ☀️ Сколько часов спал этой ночью? (ответь цифрой)${REMINDERS_FOOTER}`
           );
           pendingMorning.set(String(u.telegram_id), date);
         } catch (err) {
-          console.error('Ошибка отправки утреннего напоминания:', err);
+          await handleReminderSendError(
+            err,
+            u.telegram_id,
+            'утреннего напоминания'
+          );
         }
       }
     },
@@ -167,12 +190,16 @@ function registerReminders(bot) {
         if (u.sleep_reminders === 0) continue;
         const fact = pickWeeklyFact(u.id) || '';
         const message =
-          `🌙 Время спать!\n\n${fact}\n\nЗавтра будет продуктивная тренировка 💪`;
+          `🌙 Время спать!\n\n${fact}\n\nЗавтра будет продуктивная тренировка 💪${REMINDERS_FOOTER}`;
 
         try {
           await bot.telegram.sendMessage(u.telegram_id, message);
         } catch (err) {
-          console.error('Ошибка отправки вечернего напоминания:', err);
+          await handleReminderSendError(
+            err,
+            u.telegram_id,
+            'вечернего напоминания'
+          );
         }
       }
     },

@@ -162,12 +162,12 @@ bot.command('help', (ctx) =>
   }
 })();
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
 const http = require('http');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => res.end('GymBot is running')).listen(PORT, () => {
   console.log(`HTTP server running on port ${PORT}`);
 });
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
